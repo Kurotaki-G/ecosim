@@ -4,6 +4,18 @@
 #include "crow_all.h"
 #include "json.hpp"
 #include <random>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+//#include <barrier>
+
+int n_threads = 0;
+std::mutex m;
+std::mutex take_action;
+std::condition_variable new_iteration;
+std::condition_variable thread_finished;
+std::mutex ni_m;
+std::mutex tf_m;
 
 static const uint32_t NUM_ROWS = 15;
 
@@ -62,8 +74,60 @@ namespace nlohmann
     }
 }
 
+// Function to generate a random position based on probability
+int random_position(int max_) {
+    return rand() % max_ + 1;;
+}
+
 // Grid that contains the entities
 static std::vector<std::vector<entity_t>> entity_grid;
+
+
+bool check_age(entity_t* entity){
+    int max_age = 0;
+
+    switch (entity -> type){
+        case plant: max_age = PLANT_MAXIMUM_AGE;
+        case herbivore: max_age = HERBIVORE_MAXIMUM_AGE;
+        case carnivore: max_age = CARNIVORE_MAXIMUM_AGE;
+    }
+
+    if(entity -> age > max_age) then: return false;
+
+    return true;
+}
+
+
+void iteracao(pos_t pos){
+    
+    //tratar primeiro as mortes, alimentações e reproduções
+    //por último se ele vai andar
+    //deve haver um lock no inicio 
+    //deve haver um wait() caso a ação seja de reprodução ou andar
+    entity_t* entity;
+
+    bool isAlive = true;
+    while(isAlive){
+
+        // Cria um objeto do tipo unique_lock que no construtor chama m.lock()
+		std::unique_lock<std::mutex> ni_lk(ni_m);
+
+        new_iteration.wait(ni_lk);
+
+
+        entity = &entity_grid[pos.i][pos.j];
+
+
+        entity -> age++;
+
+        isAlive = check_age(entity);
+
+        thread_finished.notify_one();
+
+    }
+    n_threads--;
+}
+
 
 int main()
 {
@@ -98,6 +162,39 @@ int main()
         
         // Create the entities
         // <YOUR CODE HERE>
+        
+        int num_p = (uint32_t)request_body["plants"];
+        int num_h = (uint32_t)request_body["herbivores"];
+        int num_c = (uint32_t)request_body["carnivores"];
+
+        for (int i = 0; i<num_p+num_h+num_c; i++){
+            pos_t pos;
+            pos.i = random_position(NUM_ROWS-1);
+            pos.j = random_position(NUM_ROWS-1);
+            entity_t entity;
+            entity.type = entity_grid[pos.i][pos.j].type;
+            if(entity.type == empty){
+                if(i<num_p){
+                    entity.type = plant;
+                }
+                else if(i<num_p+num_h){
+                    entity.type = herbivore;
+                    entity.energy = 100;
+                }
+                else{
+                    entity.type = carnivore;
+                    entity.energy = 100;
+                }
+                entity.age = 0;
+                entity_grid[pos.i][pos.j] = entity;
+                std::thread t(iteracao,pos);
+                 t.detach();
+                 n_threads++;
+            }
+            else{
+                i--;
+            }
+        }
 
         // Return the JSON representation of the entity grid
         nlohmann::json json_grid = entity_grid; 
@@ -112,7 +209,17 @@ int main()
         // Iterate over the entity grid and simulate the behaviour of each entity
         
         // <YOUR CODE HERE>
-        
+        new_iteration.notify_all();
+
+        int n_threads_aux = n_threads;
+        int n_ready_threads = 0;
+
+        while(n_ready_threads < n_threads_aux){
+            std::unique_lock<std::mutex> tf_lk(tf_m);
+            thread_finished.wait(tf_lk);
+            n_ready_threads++;
+        }
+
         // Return the JSON representation of the entity grid
         nlohmann::json json_grid = entity_grid; 
         return json_grid.dump(); });

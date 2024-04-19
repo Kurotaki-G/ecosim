@@ -1,0 +1,35 @@
+int n_threads;
+std::mutex take_action;
+std::condition_variable new_iteration;
+std::condition_variable thread_finished;
+
+loop_entidade(){
+
+
+    new_iteration.wait()
+
+    take_action.lock()
+    //le a celula da posição
+    //decrementa a idade
+    //
+
+    take_action.unlock()
+
+    thread_finished.notify();
+
+}
+
+void main_get{
+    
+    new_iteration.notify_all();
+
+    int n_threads_aux = n_threads;
+    int n_ready_threads = 0;
+
+    while(n_ready_threads < n_threads_aux){
+
+        thread_finished.wait();
+        n_ready_threads++;
+    }
+
+}
