@@ -85,17 +85,21 @@ static std::vector<std::vector<entity_t>> entity_grid;
 
 
 bool check_age(entity_t* entity){
-    int max_age = 0;
-
+    uint32_t max_age = 0;
     switch (entity -> type){
-        case plant: max_age = PLANT_MAXIMUM_AGE;
-        case herbivore: max_age = HERBIVORE_MAXIMUM_AGE;
-        case carnivore: max_age = CARNIVORE_MAXIMUM_AGE;
+        case plant: max_age = PLANT_MAXIMUM_AGE; break;
+        case herbivore: max_age = HERBIVORE_MAXIMUM_AGE; break;
+        case carnivore: max_age = CARNIVORE_MAXIMUM_AGE; break;
     }
-
     if(entity -> age > max_age) then: return false;
-
     return true;
+}
+
+void kill_entity(entity_t* entity){
+    entity -> type = empty;
+    entity -> age = 0;
+    entity -> energy = 0;
+    n_threads--;
 }
 
 
@@ -108,6 +112,7 @@ void iteracao(pos_t pos){
     entity_t* entity;
 
     bool isAlive = true;
+    bool isDying = false;
     while(isAlive){
 
         // Cria um objeto do tipo unique_lock que no construtor chama m.lock()
@@ -115,21 +120,41 @@ void iteracao(pos_t pos){
 
         new_iteration.wait(ni_lk);
 
-
         entity = &entity_grid[pos.i][pos.j];
-
-
         entity -> age = entity-> age + 1;
 
-        entity_grid[pos.i][pos.j] = *entity;
+        isDying = !check_age(entity) || entity -> energy <= 0; //morrer de idade ou energia
 
-        //isAlive = check_age(entity);
+        if(isDying) {
+            kill_entity(entity); //ainda crítica
+        }
+        else{//se vivo
+            /*checar a vizinhança. Vale a pena criar uma função que retorna um vetor de posições possíveis, 
+            já que pode ser usado nas funções/linhas seguintes.
+            por ex: 
+                uma função que retorna o vetor de posições possíveis
+                outra função de comer, que tem como argumento/parametro receber o vetor de posições possíveis.
+                    checa se existe animal ou planta adjacente, tira sorte e decrementa energia
+                outra função para mover, usa mesmo vetor ( ponteiros de entidades seria o ideal): 
+                    checa se está vazia, escolhe uma e move (copia os valores da entidade para a posição desejada, 
+                    limpa a atual, e atualiza a posiçao pos da thread. é uma boa fazer uma função específica para mover a uma posição determinada.). 
+                    decrementa energia.
+            */
+            
 
-        n_ready_threads++;
-        thread_finished.notify_one();
+        }
+
+        n_ready_threads++; //aind acrítica
+        thread_finished.notify_one(); // fim crítico
+
+        if(isDying){
+            isAlive = false;
+            
+            //sai da função
+        }
 
     }
-    n_threads--;
+    
 }
 
 
@@ -175,23 +200,15 @@ int main()
             pos_t pos;
             pos.i = random_position(NUM_ROWS-1);
             pos.j = random_position(NUM_ROWS-1);
-            entity_t entity;
-            entity.type = entity_grid[pos.i][pos.j].type;
-            if(entity.type == empty){
-                if(i<num_p){
-                    entity.type = plant;
-                }
-                else if(i<num_p+num_h){
-                    entity.type = herbivore;
-                    entity.energy = 100;
-                }
-                else{
-                    entity.type = carnivore;
-                    entity.energy = 100;
-                }
-                entity.age = 0;
-                entity_grid[pos.i][pos.j] = entity;
-                std::thread t(iteracao,pos);
+            entity_t* entity;
+            entity = &entity_grid[pos.i][pos.j];
+            if(entity -> type == empty){
+                if(i<num_p){ entity -> type = plant;}
+                else if(i<num_p+num_h){ entity -> type = herbivore;}
+                else{ entity -> type = carnivore;}
+                entity -> energy = 100; //não tem problema a planta ter energia, não gasta
+                entity -> age = 0;
+                std::thread t(iteracao, pos);
                  t.detach();
                  n_threads++;
             }
