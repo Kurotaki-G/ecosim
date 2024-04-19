@@ -10,12 +10,13 @@
 //#include <barrier>
 
 int n_threads = 0;
+int n_ready_threads = 0;
 std::mutex m;
-std::mutex take_action;
+//std::mutex take_action;
 std::condition_variable new_iteration;
 std::condition_variable thread_finished;
-std::mutex ni_m;
-std::mutex tf_m;
+//std::mutex ni_m;
+//std::mutex tf_m;
 
 static const uint32_t NUM_ROWS = 15;
 
@@ -110,7 +111,7 @@ void iteracao(pos_t pos){
     while(isAlive){
 
         // Cria um objeto do tipo unique_lock que no construtor chama m.lock()
-		std::unique_lock<std::mutex> ni_lk(ni_m);
+		std::unique_lock<std::mutex> ni_lk(m);
 
         new_iteration.wait(ni_lk);
 
@@ -118,10 +119,13 @@ void iteracao(pos_t pos){
         entity = &entity_grid[pos.i][pos.j];
 
 
-        entity -> age++;
+        entity -> age = entity-> age + 1;
 
-        isAlive = check_age(entity);
+        entity_grid[pos.i][pos.j] = *entity;
 
+        //isAlive = check_age(entity);
+
+        n_ready_threads++;
         thread_finished.notify_one();
 
     }
@@ -196,6 +200,7 @@ int main()
             }
         }
 
+
         // Return the JSON representation of the entity grid
         nlohmann::json json_grid = entity_grid; 
         res.body = json_grid.dump();
@@ -209,15 +214,17 @@ int main()
         // Iterate over the entity grid and simulate the behaviour of each entity
         
         // <YOUR CODE HERE>
+        
+        std::unique_lock<std::mutex> tf_lk(m);
+
         new_iteration.notify_all();
 
         int n_threads_aux = n_threads;
-        int n_ready_threads = 0;
+        n_ready_threads = 0;
 
-        while(n_ready_threads < n_threads_aux){
-            std::unique_lock<std::mutex> tf_lk(tf_m);
+        while(n_ready_threads < n_threads_aux) {
             thread_finished.wait(tf_lk);
-            n_ready_threads++;
+            
         }
 
         // Return the JSON representation of the entity grid
